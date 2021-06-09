@@ -39,8 +39,8 @@ const yAxis = scatterPlot.append('g').attr('transform', `translate(${margin*2}, 
 const xLineAxis = lineChart.append('g').attr('transform', `translate(0, ${height-margin})`);
 const yLineAxis = lineChart.append('g').attr('transform', `translate(${margin*2}, 0)`);
 
-const xBarAxis = barChart.append('g').attr('transform', `translate(0, ${height-margin})`);
-const yBarAxis = barChart.append('g').attr('transform', `translate(${margin*2}, 0)`);
+const xBarAxis = barChart.append('g').attr('transform', `translate(0, ${height - margin})`);
+const yBarAxis = barChart.append('g').attr('transform', `translate(${margin * 2}, 0)`);
 
 const colorScale = d3.scaleOrdinal().range(['#DD4949', '#39CDA1', '#FD710C', '#A14BE5']);
 const radiusScale = d3.scaleSqrt().range([10, 30]);
@@ -49,43 +49,161 @@ loadData().then(data => {
 
     colorScale.domain(d3.set(data.map(d=>d.region)).values());
 
-    d3.select('#range').on('change', function(){ 
+    d3.select('#range').on('change', function(){
         year = d3.select(this).property('value');
         yearLable.html(year);
-        updateScattePlot();
+        updateScatterPlot();
         updateBar();
     });
 
-    d3.select('#radius').on('change', function(){ 
+    d3.select('#radius').on('change', function () {
         rParam = d3.select(this).property('value');
-        updateScattePlot();
+        updateScatterPlot();
     });
 
-    d3.select('#x').on('change', function(){ 
+    d3.select('#x').on('change', function () {
         xParam = d3.select(this).property('value');
-        updateScattePlot();
+        updateScatterPlot();
     });
 
-    d3.select('#y').on('change', function(){ 
+    d3.select('#y').on('change', function () {
         yParam = d3.select(this).property('value');
-        updateScattePlot();
+        updateScatterPlot();
     });
 
-    d3.select('#param').on('change', function(){ 
+    d3.select('#param').on('change', function () {
         param = d3.select(this).property('value');
         updateBar();
     });
 
+    d3.select('#p').on('change', function () {
+        lineParam = d3.select(this).property('value');
+        updateLinearPlot();
+    });
+
+
     function updateBar(){
-        return;
+        let regions = d3.map(data, d => d['region']).keys();
+        var values = regions
+            .map(r => d3.mean(data.filter(d => d.region === r)
+                .flatMap(d => d[param][year])));
+
+        var barData = [];
+        regions.forEach((r, index) =>
+            barData.push({'keyR': r, 'keyAvg': values[index]})
+        )
+
+        const xBar = d3.scaleBand().range([margin * 2, barWidth - margin]).padding(0.1).domain(regions);
+        const yBar = d3.scaleLinear().range([height - margin, margin]).domain([d3.min(values), d3.max(values)])
+
+        xBarAxis.call(d3.axisBottom().scale(xBar));
+        yBarAxis.call(d3.axisLeft().scale(yBar));
+
+        barChart.selectAll('rect').remove();
+
+        barChart.append("g").selectAll("rect").data(barData)
+            .enter().append("rect")
+            .attr('x', d => xBar(d.keyR))
+            .attr('y', d => yBar(d.keyAvg) - 30)
+            .attr('fill', d => colorScale(d.keyR))
+            .attr('height', d => 500 - yBar(d.keyAvg))
+            .attr('width', '90')
+            .attr('reg', d => d.keyR)
+            .on('click', function () {
+                barChart.selectAll('rect')
+                    .style('opacity', '0.5');
+                d3.select(this).style('opacity', '1');
+                updateScatterPlot(reg = d3.select(this).attr('reg'))
+            })
     }
 
-    function updateScattePlot(){
-        return;
+    function updateScatterPlot(region = '') {
+        scatterPlot.selectAll('circle').remove()
+
+        var x = d3.scaleLinear().range([margin * 2, width - margin]).domain([d3.min(data, d => +d[xParam][year]), d3.max(data, d => +d[xParam][year])]);
+        var y = d3.scaleLinear().range([height - margin, margin]).domain([d3.min(data, d => +d[yParam][year]), d3.max(data, d => +d[yParam][year])]);
+
+        xAxis.call(d3.axisBottom().scale(x));
+        yAxis.call(d3.axisLeft().scale(y));
+
+        const radiusScale = d3.scaleSqrt().range([10, 30]).domain([d3.min(data, d => +d[rParam][year]), d3.max(data, d => +d[rParam][year])]);
+
+
+        scatterPlot.append("g").selectAll("circle").data(data)
+            .enter().append("circle").attr('r', d => radiusScale(d[rParam][year]))
+            .attr('cx', d => x(d[xParam][year]))
+            .attr('cy', d => y(d[yParam][year]))
+            .attr('fill', d => colorScale(d.region))
+            .attr('country', d => d.country)
+            .on('click', function () {
+                selected = d3.select(this).attr('country');
+                countryName.html(selected);
+                updateLinearPlot();
+                scatterPlot.selectAll('circle').style('opacity', '0.65');
+                scatterPlot.append('circle').attr('r', d3.select(this).attr('r'))
+                    .attr('cx', d3.select(this).attr('cx'))
+                    .attr('cy', d3.select(this).attr('cy'))
+                    .attr('fill', d3.select(this).attr('fill'))
+                    .style('opacity', '1')
+            });
+
+        if (region !== '') {
+            scatterPlot.selectAll('circle')
+                .filter(d => d.region !== region).style('visibility', 'hidden')
+        }
+    }
+
+    function updateLinearPlot() {
+        lineChart.selectAll('path').remove()
+
+        if (selected !== '') {
+            let country = data.filter(c => c.country === selected)
+                .map(c => Object.values(c[lineParam]));
+            
+            let lineData = [];
+            let year = d3.range(1800, 2021).map(y => new Date(y, 0));
+
+            year.forEach((y, index) =>
+                lineData.push({'keyY': y, 'keyV': Number(country[0][index])})
+            );
+
+            var x = d3.scaleTime()
+                .domain([d3.min(lineData, function (d) {
+                    return +d.keyY
+                }), d3.max(lineData, function (d) {
+                    return +d.keyY
+                })])
+                .range([margin * 2, width - margin]);
+
+            var y = d3.scaleLinear()
+                .domain([d3.min(lineData, function (d) {
+                    return +d.keyV
+                }), d3.max(lineData, function (d) {
+                    return +d.keyV
+                })])
+                .range([height - margin, margin]);
+
+
+            xLineAxis.call(d3.axisBottom().tickFormat(d3.timeFormat("%Y")).scale(x))
+            yLineAxis.call(d3.axisLeft().scale(y))
+
+
+            lineChart.append('g')
+                .append('path')
+                .datum(lineData)
+                .attr('stroke', 'blue')
+                .attr('stroke-width', 1.5)
+                .style('fill', 'none')
+                .attr('d', d3.line()
+                    .x(d => x(d.keyY))
+                    .y(d => y(d.keyV)))
+
+
+        }
     }
 
     updateBar();
-    updateScattePlot();
+    updateScatterPlot();
 });
 
 
@@ -99,7 +217,7 @@ async function loadData() {
     };
     
     return data.population.map(d=>{
-        const index = data.gdp.findIndex(item => item.geo == d.geo);
+        const index = data.gdp.findIndex(item => item.geo === d.geo);
         return  {
             country: d.country,
             geo: d.geo,
